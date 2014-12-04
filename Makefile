@@ -1,23 +1,20 @@
 CC=gcc
 LD=gcc
 CFLAGS=-g -Wall
-CPPFLAGS=-I. -I/home/cs437/exercises/ex3/include
-SP_LIBRARY_DIR=/home/cs437/exercises/ex3
+CPPFLAGS=-I. -I include
+SP_LIBRARY_DIR=include
 
-all: sp_user class_user mcast
+all: chat_server client
 
 .c.o:
 	$(CC) $(CFLAGS) $(CPPFLAGS) -c $<
 
-sp_user:  $(SP_LIBRARY_DIR)/libspread-core.a user.o
-	$(LD) -o $@ user.o  $(SP_LIBRARY_DIR)/libspread-core.a -ldl -lm -lrt -lnsl $(SP_LIBRARY_DIR)/libspread-util.a
+chat_server:  $(SP_LIBRARY_DIR)/libspread-core.a chat_server.o
+	$(LD) -o $@ chat_server.o $(SP_LIBRARY_DIR)/libspread-core.a -ldl -lm -lrt -lnsl $(SP_LIBRARY_DIR)/libspread-util.a
 
-class_user:  $(SP_LIBRARY_DIR)/libspread-core.a class_user.o
-	$(LD) -o $@ class_user.o $(SP_LIBRARY_DIR)/libspread-core.a -ldl -lm -lrt -lnsl $(SP_LIBRARY_DIR)/libspread-util.a
-
-mcast: $(SP_LIBRARY_DIR)/libspread-core.a mcast.o
-	$(LD) -o $@ mcast.o  $(SP_LIBRARY_DIR)/libspread-core.a -ldl -lm -lrt -lnsl $(SP_LIBRARY_DIR)/libspread-util.a
+client:  $(SP_LIBRARY_DIR)/libspread-core.a client.o
+	$(LD) -o $@ client.o $(SP_LIBRARY_DIR)/libspread-core.a -ldl -lm -lrt -lnsl $(SP_LIBRARY_DIR)/libspread-util.a
 
 clean:
-	rm -f *.o sp_user class_user
+	rm -f *.o chat_server client
 
