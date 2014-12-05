@@ -1,6 +1,6 @@
 /*
  * The Spread Toolkit.
- *     
+ *
  * The contents of this file are subject to the Spread Open-Source
  * License, Version 1.0 (the ``License''); you may not use
  * this file except in compliance with the License.  You may obtain a
@@ -10,9 +10,9 @@
  *
  * or in the file ``license.txt'' found in this distribution.
  *
- * Software distributed under the License is distributed on an AS IS basis, 
- * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License 
- * for the specific language governing rights and limitations under the 
+ * Software distributed under the License is distributed on an AS IS basis,
+ * WITHOUT WARRANTY OF ANY KIND, either express or implied. See the License
+ * for the specific language governing rights and limitations under the
  * License.
  *
  * The Creators of Spread are:
@@ -117,7 +117,7 @@ int main( int argc, char *argv[] )
 
 	Usage( argc, argv );
 #ifdef SPREAD_VERSION
-        if (!SP_version( &mver, &miver, &pver)) 
+        if (!SP_version( &mver, &miver, &pver))
         {
 	  printf("main: Illegal variables passed to SP_version()\n");
 	  Bye();
@@ -134,10 +134,10 @@ int main( int argc, char *argv[] )
                 strncpy(Pword_user.password, Pword_password, 8);
                 Pword_user.password[8] = '\0';
                 SP_set_auth_method("PWORD", pword_authenticate, &Pword_user);
-        } 
+        }
 #endif
 	ret = SP_connect_timeout( Spread_name, User, 0, 1, &Mbox, Private_group, test_timeout );
-	if( ret != ACCEPT_SESSION ) 
+	if( ret != ACCEPT_SESSION )
 	{
 		SP_error( ret );
 		Bye();
@@ -218,14 +218,14 @@ static	void	User_command()
 	int	i;
 
 	for( i=0; i < sizeof(command); i++ ) command[i] = 0;
-	if( fgets( command, 130, stdin ) == NULL ) 
+	if( fgets( command, 130, stdin ) == NULL )
             Bye();
 
 	switch( command[0] )
 	{
 		case 'j':
 			ret = sscanf( &command[2], "%s", group );
-			if( ret < 1 ) 
+			if( ret < 1 )
 			{
 				printf(" invalid group \n");
 				break;
@@ -237,7 +237,7 @@ static	void	User_command()
 
 		case 'l':
 			ret = sscanf( &command[2], "%s", group );
-			if( ret < 1 ) 
+			if( ret < 1 )
 			{
 				printf(" invalid group \n");
 				break;
@@ -248,10 +248,10 @@ static	void	User_command()
 			break;
 
 		case 's':
-			num_groups = sscanf(&command[2], "%s%s%s%s%s%s%s%s%s%s", 
+			num_groups = sscanf(&command[2], "%s%s%s%s%s%s%s%s%s%s",
 						groups[0], groups[1], groups[2], groups[3], groups[4],
 						groups[5], groups[6], groups[7], groups[8], groups[9] );
-			if( num_groups < 1 ) 
+			if( num_groups < 1 )
 			{
 				printf(" invalid group \n");
 				break;
@@ -271,7 +271,7 @@ static	void	User_command()
 #endif /* __bsdi__ */
 #endif /* _REENTRANT */
 			ret= SP_multigroup_multicast( Mbox, SAFE_MESS, num_groups, (const char (*)[MAX_GROUP_NAME]) groups, 1, mess_len, mess );
-			if( ret < 0 ) 
+			if( ret < 0 )
 			{
 				SP_error( ret );
 				Bye();
@@ -281,10 +281,10 @@ static	void	User_command()
 			break;
 
 		case 'm':
-			num_groups = sscanf(&command[2], "%s%s%s%s%s%s%s%s%s%s", 
+			num_groups = sscanf(&command[2], "%s%s%s%s%s%s%s%s%s%s",
 						groups[0], groups[1], groups[2], groups[3], groups[4],
 						groups[5], groups[6], groups[7], groups[8], groups[9] );
-			if( num_groups < 1 ) 
+			if( num_groups < 1 )
 			{
 				printf(" invalid group \n");
 				break;
@@ -309,7 +309,7 @@ static	void	User_command()
 #endif /* __bsdi__ */
 #endif /* _REENTRANT */
 			ret= SP_multigroup_multicast( Mbox, SAFE_MESS, num_groups, (const char (*)[MAX_GROUP_NAME]) groups, 1, mess_len, mess );
-			if( ret < 0 ) 
+			if( ret < 0 )
 			{
 				SP_error( ret );
 				Bye();
@@ -345,7 +345,7 @@ static	void	User_command()
 #endif /* _REENTRANT */
 				ret= SP_multicast( Mbox, FIFO_MESS, group, 2, mess_len, mess );
 
-				if( ret < 0 ) 
+				if( ret < 0 )
 				{
 					SP_error( ret );
 					Bye();
@@ -403,7 +403,7 @@ static	void	Print_menu()
 	printf("\tl <group> -- leave a group\n");
 	printf("\n");
 	printf("\ts <group> -- send a message\n");
-        printf("\tm <group> -- send a multiline message to group. Terminate with empty line\n");
+  printf("\tm <group> -- send a multiline message to group. Terminate with empty line\n");
 	printf("\tb <group> -- send a burst of messages\n");
 	printf("\n");
 #ifndef	_REENTRANT
@@ -440,15 +440,15 @@ static	char		 mess[MAX_MESSLEN];
 
         service_type = 0;
 
-	ret = SP_receive( Mbox, &service_type, sender, 100, &num_groups, target_groups, 
+	ret = SP_receive( Mbox, &service_type, sender, 100, &num_groups, target_groups,
 		&mess_type, &endian_mismatch, sizeof(mess), mess );
 	printf("\n============================\n");
-	if( ret < 0 ) 
+	if( ret < 0 )
 	{
                 if ( (ret == GROUPS_TOO_SHORT) || (ret == BUFFER_TOO_SHORT) ) {
                         service_type = DROP_RECV;
                         printf("\n========Buffers or Groups too Short=======\n");
-                        ret = SP_receive( Mbox, &service_type, sender, MAX_MEMBERS, &num_groups, target_groups, 
+                        ret = SP_receive( Mbox, &service_type, sender, MAX_MEMBERS, &num_groups, target_groups,
                                           &mess_type, &endian_mismatch, sizeof(mess), mess );
                 }
         }
@@ -555,16 +555,16 @@ static	void	Usage(int argc, char *argv[])
 			strcpy( User, "" );
 		}else if( !strncmp( *argv, "-s", 2 ) ){
                         if (argc < 2) Print_help();
-			strcpy( Spread_name, argv[1] ); 
+			strcpy( Spread_name, argv[1] );
 			argc--; argv++;
 		}else if( !strncmp( *argv, "-n", 2 ) ){
                         if (argc < 2) Print_help();
-			strcpy( Pword_username, argv[1] ); 
+			strcpy( Pword_username, argv[1] );
                         Use_Pword = 1;
 			argc--; argv++;
 		}else if( !strncmp( *argv, "-p", 2 ) ){
                         if (argc < 2) Print_help();
-			strcpy( Pword_password, argv[1] ); 
+			strcpy( Pword_password, argv[1] );
                         Use_Pword = 1;
 			argc--; argv++;
 		}else{

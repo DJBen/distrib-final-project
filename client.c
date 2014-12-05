@@ -6,19 +6,33 @@
 #include <string.h>
 #include <limits.h>
 #include <time.h>
+#include <stdbool.h>
+#include "chat_includes.h"
 
 static  char  User[80];
 static  char  Spread_name[80];
+static  char  username[80];
+static char roomName[MAX_GROUP_NAME];
 
 static  char  Private_group[MAX_GROUP_NAME];
 static  mailbox Mbox;
 
+static char temp_group_name[MAX_GROUP_NAME];
+static char server_group_name[MAX_GROUP_NAME];
+static char server_client_group_name[MAX_GROUP_NAME];
+static bool isConnected;
+static int  server_index = -1;
+
 static  void  Print_menu();
 static  void  User_command();
 static  void  Read_message();
+static void Bye();
+static void CreateJoinRoomUpdate(Update **update, char *groupName);
+static void CreateAddLineUpdate(Update **update, char *line, char *room);
 
-static void Usage(int argc, char *argv[]) {
-
+static void Usage(int argc, char const *argv[]) {
+  sprintf( User, "slu21" );
+  sprintf( Spread_name, "10270");
 }
 
 int main(int argc, char const *argv[])
@@ -31,10 +45,16 @@ int main(int argc, char const *argv[])
   if( ret != ACCEPT_SESSION )
   {
     SP_error( ret );
-    exit(0);
+    exit(1);
   }
 
   printf("User: connected to %s with private group %s\n", Spread_name, Private_group );
+
+  Print_menu();
+  printf("User> ");
+  fflush(stdout);
+
+  isConnected = false;
 
   E_init();
 
@@ -42,14 +62,217 @@ int main(int argc, char const *argv[])
 
   E_attach_fd( Mbox, READ_FD, Read_message, 0, NULL, HIGH_PRIORITY );
 
-  printf("\nUser> ");
-  fflush(stdout);
-
-  Num_sent = 0;
-
   E_handle_events();
 
   return 0;
 }
 
+static void User_command() {
+  char  command[130];
+  int ret;
+  int i;
+  Update *update = NULL;
+  char line[MAX_LINE_LENGTH];
 
+  for (i=0; i < sizeof(command); i++ ) command[i] = 0;
+  if( fgets( command, 130, stdin ) == NULL ) Bye();
+
+  switch( command[0] ) {
+    case 'u':
+      if (username[0] == '\0') {
+        ret = sscanf( &command[2], "%s", username );
+        if( ret < 1 )
+        {
+          printf("Invalid username.\n");
+          break;
+        } else {
+          printf("Logged in with username: %s\n", username);
+        }
+      } else {
+        // TODO: Quit chat group if relog in with another username
+      }
+      break;
+    case 'c':
+      ret = sscanf( &command[2], "%d", &server_index );
+      if( ret < 1 )
+      {
+        printf("Invalid server index to connect.\n");
+        break;
+      } else {
+        printf("Prepare to connect server: %d\n", server_index);
+        sprintf(temp_group_name, ServerClientGroupNameWithIndex(server_index));
+        SP_join(Mbox, temp_group_name);
+        isConnected = true;
+        sprintf(server_group_name, ServerGroupNameWithIndex(server_index));
+        strcpy(server_client_group_name, temp_group_name);
+      }
+      break;
+    case 'j':
+      if (username[0] == '\0') {
+        printf("You haven't logged in.\n");
+        break;
+      }
+      if (server_index == -1) {
+        printf("You haven't connect to a server.\n");
+        break;
+      }
+      ret = sscanf( &command[2], "%s", roomName);
+      if( ret < 1 )
+      {
+        printf("Invalid chat room name.\n");
+        break;
+      }
+      CreateJoinRoomUpdate(&update, roomName);
+      ret = SP_multicast( Mbox, AGREED_MESS, server_group_name, UpdateMessageType, UpdateMsgSize, (char *)update);
+      if( ret != UpdateMsgSize)
+      {
+        if( ret < 0 )
+        {
+          SP_error( ret );
+          exit(1);
+        }
+      }
+      printf("Joined chat room %s\n", roomName);
+      break;
+    case 'a':
+      if (username[0] == '\0') {
+        printf("You haven't logged in.\n");
+        break;
+      }
+      if (server_index == -1) {
+        printf("You haven't connect to a server.\n");
+        break;
+      }
+      if (roomName[0] == '\0') {
+        printf("You haven't joined a room.\n");
+        break;
+      }
+      ret = sscanf( &command[2], "%s", line);
+      if( ret < 1 )
+      {
+        printf("Invalid line content. Must <= 120 characters.\n");
+        break;
+      }
+      CreateAddLineUpdate(&update, line, roomName);
+      ret = SP_multicast( Mbox, AGREED_MESS, server_group_name, UpdateMessageType, UpdateMsgSize, (char *)update);
+      if( ret != UpdateMsgSize)
+      {
+        if( ret < 0 )
+        {
+          SP_error( ret );
+          exit(1);
+        }
+      }
+      break;
+    case 'h':
+      if (username[0] == '\0') {
+        printf("You haven't logged in.\n");
+        break;
+      }
+      if (server_index == -1) {
+        printf("You haven't connect to a server.\n");
+        break;
+      }
+      if (roomName[0] == '\0') {
+        printf("You haven't joined a room.\n");
+        break;
+      }
+      if (update) free(update);
+      update = malloc(sizeof(Update));
+      update->type = PrintHistory;
+      strcpy(update->room, roomName);
+      strcpy(update->user, username);
+      ret = SP_multicast( Mbox, AGREED_MESS, server_group_name, UpdateMessageType, UpdateMsgSize, (char *)update);
+      if( ret != UpdateMsgSize)
+      {
+        if( ret < 0 )
+        {
+          SP_error( ret );
+          exit(1);
+        }
+      }
+      printf("Print history request sent");
+      break;
+  }
+  Print_menu();
+  printf("User> ");
+}
+
+static void Read_message() {
+  static  Reply  *reply;
+  char     sender[MAX_GROUP_NAME];
+  char     ret_groups[MAX_GROUPS][MAX_GROUP_NAME];
+  int    num_groups;
+  int    service_type;
+  int16    mess_type;
+  int    endian_mismatch;
+  int    i,j;
+  int    ret;
+  int like_count = -1;
+
+  reply = malloc(MAX_REPLY_SIZE);
+
+  ret = SP_receive( Mbox, &service_type, sender, MAX_GROUPS, &num_groups, ret_groups,
+    &mess_type, &endian_mismatch, MAX_REPLY_SIZE, (char *)reply );
+
+  if (mess_type != ReplyMessageType) {
+    printf("Message type %d not correct!", mess_type);
+    return;
+  }
+
+  printf("Received reply with type %d, count %d.\n", reply->type, reply->count);
+  if (reply->type == ReplyPrintHistory) {
+    for (i = 0; i < reply->count; i++) {
+      printf("%d. %s: %s", i,
+        reply->content + sizeof(char) * i * MAX_GROUP_NAME,
+        reply->content + sizeof(char) * reply->count * MAX_GROUP_NAME + sizeof(char) * i * MAX_LINE_LENGTH);
+      memcpy(&like_count, reply->content + sizeof(char) * reply->count * MAX_GROUP_NAME + sizeof(char) * reply->count * MAX_LINE_LENGTH + sizeof(int) * i, sizeof(int));
+      if (like_count > 0) {
+        printf(" (%d likes)\n", like_count);
+      } else {
+        printf("\n");
+      }
+    }
+  }
+  free(reply);
+}
+
+static void CreateJoinRoomUpdate(Update **update, char *roomName) {
+  if (*update != NULL) free(*update);
+  *update = malloc(sizeof(Update));
+  (*update)->type = JoinRoom;
+  strcpy((*update)->room, roomName);
+  strcpy((*update)->user, username);
+  (*update)->sender_index = 0;
+}
+
+static void CreateAddLineUpdate(Update **update, char *line, char *room) {
+  *update = malloc(sizeof(Update));
+  (*update)->type = AddLine;
+  strcpy((*update)->line, line);
+  strcpy((*update)->room, room);
+  strcpy((*update)->user, username);
+  (*update)->sender_index = 0;
+}
+
+static void Bye() {
+  SP_disconnect(Mbox);
+  exit(0);
+}
+
+static  void  Print_menu() {
+  printf("\n");
+  printf("==========================================\n");
+  printf("Client Menu:\n");
+  printf("------------------------------------------\n");
+  printf("u <username> -- log in with user\n");
+  printf("c <server index> -- connect to a server\n");
+  printf("j <room> -- join a room\n");
+  printf("------------------------------------------\n");
+  printf("a <line> -- append a line to the chat\n");
+  printf("l <line #> -- like a line\n");
+  printf("r <line #> -- remove the like from line\n");
+  printf("h -- print chat history\n");
+  printf("v -- print view of current server\n");
+  printf("\n");
+}
