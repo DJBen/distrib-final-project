@@ -9,7 +9,7 @@
 #include <stdbool.h>
 
 #include "chat_includes.h"
-#include "arraylist.h"
+#include "vector.h"
 
 #define MAX_CHATROOM_COUNT 100
 #define MAX_LINE_COUNT 1000
@@ -21,14 +21,14 @@ typedef struct
   char sender[MAX_GROUP_NAME];
   int like_count;
   // All users who have liked this.
-  struct array_list *likes;
+  struct vector *likes;
 } Line;
 
 typedef struct
 {
   char name[80];
-  struct array_list *members;
-  struct array_list *lines;
+  struct vector *members;
+  struct vector *lines;
 } Chatroom;
 
 static mailbox Mbox;
@@ -50,18 +50,6 @@ static int findRoomWithName(char *roomName);
 static void CreateHistoryReply(Reply **reply, ReplyType type, Chatroom *room, int limit);
 static void CreateHistoryReplyWithNewUser(Reply **reply, ReplyType type, Chatroom *room, int limit, char *newUserName);
 static void printChatrooms();
-
-// static void arrayListTest() {
-//   struct array_list *test;
-//   test = array_list_new(&freeString);
-//   array_list_add(test, "haha");
-//   array_list_add(test, "haha2");
-//   array_list_add(test, "haha3");
-//   if (array_list_length(test) != 3) {
-//     printf("AAAAAA\n");
-//   }
-//   array_list_free(test);
-// }
 
 int main(int argc, char const *argv[])
 {
@@ -131,6 +119,7 @@ static void Runloop() {
   Reply *temp_reply = NULL;
   membership_info memb_info;
 
+
   recv_mess = malloc(MAX(MAX_REPLY_SIZE, UpdateMsgSize));
 
   num_groups = 0;
@@ -191,10 +180,10 @@ static void Runloop() {
             // Chat group not found: create the group
             current_room = malloc(sizeof(Chatroom));
             strcpy(current_room->name, recv_mess->room);
-            current_room->members = array_list_new(&freeString);
+            current_room->members = vector_init(&freeString);
             strcpy(temp_name, recv_mess->user);
-            array_list_add(current_room->members, temp_name);
-            current_room->lines = array_list_new(&freeString);
+            vector_append(current_room->members, temp_name);
+            current_room->lines = vector_init(&freeString);
             chatrooms[chat_room_count++] = current_room;
 
             // Create spread group for chat group on this server
@@ -206,15 +195,15 @@ static void Runloop() {
             // Chat group found: add user to that group only
             current_room = chatrooms[room_found];
             strcpy(temp_name, recv_mess->user);
-            array_list_add(current_room->members, temp_name);
+            vector_append(current_room->members, temp_name);
             printf("User %s joined chat room %s. Users: ", temp_name, current_room->name);
-            array_list_print(current_room->members);
+            vector_print(current_room->members);
           }
           // Send other user's update about the join
           sprintf(temp_group_name, "server_chatroom_%d_%s", server_index, current_room->name);
           CreateHistoryReplyWithNewUser(&temp_reply, ReplyNewUserJoin, current_room, 25, recv_mess->user);
-          ret = SP_multicast( Mbox, AGREED_MESS, temp_group_name, ReplyMessageType, HistoryReplySizeWithCount(array_list_length(current_room->lines)), (char *)temp_reply);
-          if (ret != HistoryReplySizeWithCount(array_list_length(current_room->lines)))
+          ret = SP_multicast( Mbox, AGREED_MESS, temp_group_name, ReplyMessageType, HistoryReplySizeWithCount(vector_size(current_room->lines)), (char *)temp_reply);
+          if (ret != HistoryReplySizeWithCount(vector_size(current_room->lines)))
             {
               if( ret < 0 )
               {
@@ -236,14 +225,14 @@ static void Runloop() {
             strcpy(temp_line->content, recv_mess->line);
             strcpy(temp_line->sender, recv_mess->user);
             temp_line->like_count = 0;
-            temp_line->likes = array_list_new(&freeString);
-            array_list_add(current_room->lines, temp_line);
-            // printf("* current room line count = %d\n", array_list_length(current_room->lines));
+            temp_line->likes = vector_init(&freeString);
+            vector_append(current_room->lines, temp_line);
+            // printf("* current room line count = %d\n", vector_size(current_room->lines));
             // Broadcast line to clients in the same chatroom
             sprintf(temp_group_name, "server_chatroom_%d_%s", server_index, current_room->name);
             CreateHistoryReply(&temp_reply, ReplyEchoLine, current_room, 25);
-            ret = SP_multicast( Mbox, AGREED_MESS, temp_group_name, ReplyMessageType, HistoryReplySizeWithCount(array_list_length(current_room->lines)), (char *)temp_reply);
-            if (ret != HistoryReplySizeWithCount(array_list_length(current_room->lines)))
+            ret = SP_multicast( Mbox, AGREED_MESS, temp_group_name, ReplyMessageType, HistoryReplySizeWithCount(vector_size(current_room->lines)), (char *)temp_reply);
+            if (ret != HistoryReplySizeWithCount(vector_size(current_room->lines)))
             {
               if( ret < 0 )
               {
@@ -255,6 +244,10 @@ static void Runloop() {
             printf("%s> %s\n", temp_line->sender, temp_line->content);
             // printChatrooms(); // DEBUG
           }
+        } else if (recv_mess->type == AddLike) {
+
+        } else if (recv_mess->type == RemoveLike) {
+
         } else if (recv_mess->type == PrintHistory) {
           room_found = findRoomWithName(recv_mess->room);
           if (room_found == -1) {
@@ -265,8 +258,8 @@ static void Runloop() {
             current_room = chatrooms[room_found];
             CreateHistoryReply(&temp_reply, ReplyPrintHistory, current_room, 100);
             printf("Create history records.\n");
-            ret = SP_multicast( Mbox, AGREED_MESS, sender, ReplyMessageType, HistoryReplySizeWithCount(array_list_length(current_room->lines)), (char *)temp_reply);
-            if (ret != HistoryReplySizeWithCount(array_list_length(current_room->lines)))
+            ret = SP_multicast( Mbox, AGREED_MESS, sender, ReplyMessageType, HistoryReplySizeWithCount(vector_size(current_room->lines)), (char *)temp_reply);
+            if (ret != HistoryReplySizeWithCount(vector_size(current_room->lines)))
             {
               if( ret < 0 )
               {
@@ -351,26 +344,26 @@ static void CreateHistoryReply(Reply **reply, ReplyType type, Chatroom *room, in
   int i;
   int start = 0;
   if (*reply) free(*reply);
-  *reply = malloc(HistoryReplySizeWithCount(MIN(array_list_length(room->lines), limit)));
+  *reply = malloc(HistoryReplySizeWithCount(MIN(vector_size(room->lines), limit)));
   (*reply)->type = type;
   if (limit < 0) {
-    (*reply)->count = array_list_length(room->lines);
+    (*reply)->count = vector_size(room->lines);
     start = 0;
-    limit = array_list_length(room->lines);
+    limit = vector_size(room->lines);
   } else {
-    (*reply)->count = MIN(array_list_length(room->lines), limit);
-    if (array_list_length(room->lines) <= limit) {
+    (*reply)->count = MIN(vector_size(room->lines), limit);
+    if (vector_size(room->lines) <= limit) {
       start = 0;
-      limit = array_list_length(room->lines);
+      limit = vector_size(room->lines);
     } else {
-      start = array_list_length(room->lines) - limit;
+      start = vector_size(room->lines) - limit;
     }
   }
   // printf("* Create history reply type = %d count = %d\n", type, (*reply)->count);
   for (i = start; i < start + limit; i++) {
-    strcpy((*reply)->content + sizeof(char) * MAX_GROUP_NAME * i, ((Line *)array_list_get_idx(room->lines, i))->sender);
-    strcpy((*reply)->content + sizeof(char) * MAX_GROUP_NAME * (*reply)->count + sizeof(char) * MAX_LINE_LENGTH * i, ((Line *)array_list_get_idx(room->lines, i))->content);
-    memcpy((*reply)->content + sizeof(char) * MAX_GROUP_NAME * (*reply)->count + sizeof(char) * MAX_LINE_LENGTH * (*reply)->count + i * sizeof(int), &((Line *)array_list_get_idx(room->lines, i))->like_count, sizeof(int));
+    strcpy((*reply)->content + sizeof(char) * MAX_GROUP_NAME * i, ((Line *)vector_get(room->lines, i))->sender);
+    strcpy((*reply)->content + sizeof(char) * MAX_GROUP_NAME * (*reply)->count + sizeof(char) * MAX_LINE_LENGTH * i, ((Line *)vector_get(room->lines, i))->content);
+    memcpy((*reply)->content + sizeof(char) * MAX_GROUP_NAME * (*reply)->count + sizeof(char) * MAX_LINE_LENGTH * (*reply)->count + i * sizeof(int), &((Line *)vector_get(room->lines, i))->like_count, sizeof(int));
   }
 }
 

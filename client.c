@@ -275,6 +275,12 @@ static void CreateJoinRoomUpdate(Update **update, char *roomName) {
   (*update)->sender_index = 0;
 }
 
+static void CreateLikeLineUpdate(Update **update, char *roomName, bool isAdd) {
+  if (*update != NULL) free(*update);
+  *update = malloc(sizeof(Update));
+
+}
+
 static void CreateAddLineUpdate(Update **update, char *line, char *room) {
   *update = malloc(sizeof(Update));
   (*update)->type = AddLine;
