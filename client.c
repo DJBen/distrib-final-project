@@ -29,6 +29,7 @@ static  void  Read_message();
 static void Bye();
 static void CreateJoinRoomUpdate(Update **update, char *groupName);
 static void CreateAddLineUpdate(Update **update, char *line, char *room);
+static void PrintHistoryWithReply(Reply *reply);
 
 static void Usage(int argc, char const *argv[]) {
   sprintf( User, "slu21" );
@@ -51,8 +52,8 @@ int main(int argc, char const *argv[])
   printf("User: connected to %s with private group %s\n", Spread_name, Private_group );
 
   Print_menu();
-  printf("User> ");
-  fflush(stdout);
+  printf("\nUser> ");
+  // fflush(stdout);
 
   isConnected = false;
 
@@ -124,6 +125,7 @@ static void User_command() {
       }
       CreateJoinRoomUpdate(&update, roomName);
       ret = SP_multicast( Mbox, AGREED_MESS, server_group_name, UpdateMessageType, UpdateMsgSize, (char *)update);
+
       if( ret != UpdateMsgSize)
       {
         if( ret < 0 )
@@ -132,6 +134,11 @@ static void User_command() {
           exit(1);
         }
       }
+
+      // Join the corresponding chat room spread group
+      sprintf(temp_group_name, "server_chatroom_%d_%s", server_index, roomName);
+      SP_join(Mbox, temp_group_name);
+
       printf("Joined chat room %s\n", roomName);
       break;
     case 'a':
@@ -147,7 +154,7 @@ static void User_command() {
         printf("You haven't joined a room.\n");
         break;
       }
-      ret = sscanf( &command[2], "%s", line);
+      ret = sscanf( &command[2], "%[^\t\n]", line);
       if( ret < 1 )
       {
         printf("Invalid line content. Must <= 120 characters.\n");
@@ -182,6 +189,7 @@ static void User_command() {
       update->type = PrintHistory;
       strcpy(update->room, roomName);
       strcpy(update->user, username);
+      update->sender_index = 0;
       ret = SP_multicast( Mbox, AGREED_MESS, server_group_name, UpdateMessageType, UpdateMsgSize, (char *)update);
       if( ret != UpdateMsgSize)
       {
@@ -193,9 +201,16 @@ static void User_command() {
       }
       printf("Print history request sent");
       break;
+    default:
+      Print_menu();
+      break;
   }
-  Print_menu();
-  printf("User> ");
+  if (username[0] == '\0') {
+    printf("\nUser> ");
+  } else {
+    printf("\n%s> ", username);
+  }
+  fflush(stdout);
 }
 
 static void Read_message() {
@@ -208,33 +223,47 @@ static void Read_message() {
   int    endian_mismatch;
   int    i,j;
   int    ret;
-  int like_count = -1;
+  membership_info memb_info;
+  char temp_name[MAX_GROUP_NAME];
 
   reply = malloc(MAX_REPLY_SIZE);
 
   ret = SP_receive( Mbox, &service_type, sender, MAX_GROUPS, &num_groups, ret_groups,
     &mess_type, &endian_mismatch, MAX_REPLY_SIZE, (char *)reply );
 
-  if (mess_type != ReplyMessageType) {
-    printf("Message type %d not correct!", mess_type);
-    return;
-  }
+  if (Is_regular_mess(service_type)) {
+    if (mess_type != ReplyMessageType) {
+      printf("Message type %d not correct!", mess_type);
+      return;
+    }
 
-  printf("Received reply with type %d, count %d.\n", reply->type, reply->count);
-  if (reply->type == ReplyPrintHistory) {
-    for (i = 0; i < reply->count; i++) {
-      printf("%d. %s: %s", i,
-        reply->content + sizeof(char) * i * MAX_GROUP_NAME,
-        reply->content + sizeof(char) * reply->count * MAX_GROUP_NAME + sizeof(char) * i * MAX_LINE_LENGTH);
-      memcpy(&like_count, reply->content + sizeof(char) * reply->count * MAX_GROUP_NAME + sizeof(char) * reply->count * MAX_LINE_LENGTH + sizeof(int) * i, sizeof(int));
-      if (like_count > 0) {
-        printf(" (%d likes)\n", like_count);
-      } else {
-        printf("\n");
+    printf("Received reply with type %d, count %d.\n", reply->type, reply->count);
+    if (reply->type == ReplyPrintHistory) {
+      PrintHistoryWithReply(reply);
+    } else if (reply->type == ReplyEchoLine) {
+      PrintHistoryWithReply(reply);
+    } else if (reply->type == ReplyNewUserJoin) {
+      strcpy(temp_name, reply->content + sizeof(char) * MAX_GROUP_NAME * reply->count + sizeof(char) * MAX_LINE_LENGTH * reply->count + sizeof(int) * reply->count);
+      printf("New user %s joined to the chat.\n", temp_name);
+    }
+    free(reply);
+  } else if (Is_membership_mess( service_type)) {
+    ret = SP_get_memb_info(reply, service_type, &memb_info);
+    if (ret < 0) {
+      printf("BUG: membership message does not have valid body\n");
+      SP_error(ret);
+      exit(1);
+    }
+    if (Is_reg_memb_mess(service_type)) {
+      printf("Received REGULAR membership for group %s with %d members, where I am member %d:\n", sender, num_groups, mess_type );
+      for( i=0; i < num_groups; i++) printf("\t%s\n", &ret_groups[i][0] );
+      if (strncmp(sender, "server_chatroom_", strlen("server_chatroom_")) == 0) {
+        if (Is_caused_join_mess(service_type)) {
+          printf("Due to JOIN of %s\n", memb_info.changed_member);
+        }
       }
     }
   }
-  free(reply);
 }
 
 static void CreateJoinRoomUpdate(Update **update, char *roomName) {
@@ -274,5 +303,24 @@ static  void  Print_menu() {
   printf("r <line #> -- remove the like from line\n");
   printf("h -- print chat history\n");
   printf("v -- print view of current server\n");
+  printf("==========================================\n");
+  fflush(stdout);
+}
+
+static void PrintHistoryWithReply(Reply *reply) {
+  int like_count = -1;
+  int i;
   printf("\n");
+  for (i = 0; i < reply->count; i++) {
+    printf("%d. %s: %s", i + 1,
+      reply->content + sizeof(char) * i * MAX_GROUP_NAME,
+      reply->content + sizeof(char) * reply->count * MAX_GROUP_NAME + sizeof(char) * i * MAX_LINE_LENGTH);
+    memcpy(&like_count, reply->content + sizeof(char) * reply->count * MAX_GROUP_NAME + sizeof(char) * reply->count * MAX_LINE_LENGTH + sizeof(int) * i, sizeof(int));
+    if (like_count > 0) {
+      printf(" (%d likes)\n", like_count);
+    } else {
+      printf("\n");
+    }
+  }
+  printf("%s>", username);
 }

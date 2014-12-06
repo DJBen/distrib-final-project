@@ -1,7 +1,13 @@
 #ifndef _CHAT_INCLUDE_
+
+#include <stdbool.h>
+
 #define _CHAT_INCLUDE_ 0
 #define MAX_LINE_LENGTH 120
 #define MAX_GROUPS 10
+
+#define MIN(X, Y) (((X) < (Y)) ? (X) : (Y))
+#define MAX(X, Y) (((X) > (Y)) ? (X) : (Y))
 
 typedef enum
 {
@@ -22,7 +28,7 @@ typedef struct
 
 typedef enum
 {
-  ReplyPrintHistory, ReplyPrintView
+  ReplyPrintHistory, ReplyPrintView, ReplyEchoLine, ReplyNewUserJoin
 } ReplyType;
 
 typedef struct
@@ -36,8 +42,10 @@ typedef struct
 #define ReplyMessageType 1123
 
 #define UpdateMsgSize sizeof(Update)
-#define PrintHistoryReplySizeWithCount(count) sizeof(Reply) + sizeof(char) * MAX_GROUP_NAME * count + sizeof(char) * MAX_LINE_LENGTH * count + sizeof(int) * count
-#define MAX_REPLY_SIZE PrintHistoryReplySizeWithCount(100)
+
+// sender[], lines[], likes[], newperson?
+#define HistoryReplySizeWithCount(count) sizeof(Reply) + sizeof(char) * MAX_GROUP_NAME * count + sizeof(char) * MAX_LINE_LENGTH * count + sizeof(int) * count + sizeof(char) * MAX_GROUP_NAME
+#define MAX_REPLY_SIZE HistoryReplySizeWithCount(100)
 #define PrintViewReplySizeWithCount(count) sizeof(Reply) + sizeof(char) * MAX_GROUP_NAME * count
 #define ServerGroupNameWithIndex(index) "server_%d", index
 #define ServerClientGroupNameWithIndex(index) "server_clients_%d", index

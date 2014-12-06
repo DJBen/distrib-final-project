@@ -344,13 +344,13 @@ static	char		 mess[MAX_MESSLEN];
 			sender, mess_type, endian_mismatch, num_groups, ret, mess );
 	}else if( Is_membership_mess( service_type ) )
         {
-                ret = SP_get_memb_info( mess, service_type, &memb_info );
-                if (ret < 0) {
-                        printf("BUG: membership message does not have valid body\n");
-                        SP_error( ret );
-                        exit( 1 );
-                }
-		if     ( Is_reg_memb_mess( service_type ) )
+        ret = SP_get_memb_info( mess, service_type, &memb_info );
+        if (ret < 0) {
+                printf("BUG: membership message does not have valid body\n");
+                SP_error( ret );
+                exit( 1 );
+        }
+		    if     ( Is_reg_memb_mess( service_type ) )
 		{
 			printf("Received REGULAR membership for group %s with %d members, where I am member %d:\n",
 				sender, num_groups, mess_type );
