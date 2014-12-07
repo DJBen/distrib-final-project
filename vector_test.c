@@ -5,6 +5,16 @@
 #include <assert.h>
 
 static void free_string(void *string);
+static void free_line(void *line);
+
+typedef struct
+{
+  char content[120];
+  char sender[36];
+  int like_count;
+  // All users who have liked this.
+  struct vector *likes;
+} FakeLine;
 
 int main(int argc, char const *argv[])
 {
@@ -36,6 +46,11 @@ int main(int argc, char const *argv[])
 }
 
 static void free_string(void *string) {
+  printf("Free being called. String to free: %s\n", (char *)string);
   free(string);
+}
+
+static void free_line(void *line) {
+
 }
 

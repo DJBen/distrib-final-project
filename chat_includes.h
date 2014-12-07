@@ -20,7 +20,7 @@ typedef struct
   UpdateType type;
   char user[MAX_GROUP_NAME];
   char line[MAX_LINE_LENGTH];
-  int line_index;
+  int line_number;
   char room[MAX_GROUP_NAME];
   // 0 for client, 1-5 for server that sends it
   int sender_index;
@@ -28,7 +28,7 @@ typedef struct
 
 typedef enum
 {
-  ReplyPrintHistory, ReplyPrintView, ReplyEchoLine, ReplyNewUserJoin
+  ReplyPrintHistory, ReplyPrintView, ReplyEchoLine, ReplyNewUserJoin, ReplyAddLike, ReplyRemoveLike
 } ReplyType;
 
 typedef struct
@@ -44,7 +44,7 @@ typedef struct
 #define UpdateMsgSize sizeof(Update)
 
 // sender[], lines[], likes[], newperson?
-#define HistoryReplySizeWithCount(count) sizeof(Reply) + sizeof(char) * MAX_GROUP_NAME * count + sizeof(char) * MAX_LINE_LENGTH * count + sizeof(int) * count + sizeof(char) * MAX_GROUP_NAME
+#define HistoryReplySizeWithCount(count) sizeof(Reply) + sizeof(char) * MAX_GROUP_NAME * count + sizeof(char) * MAX_LINE_LENGTH * count + sizeof(int) * count + sizeof(char) * MAX_GROUP_NAME + sizeof(bool)
 #define MAX_REPLY_SIZE HistoryReplySizeWithCount(100)
 #define PrintViewReplySizeWithCount(count) sizeof(Reply) + sizeof(char) * MAX_GROUP_NAME * count
 #define ServerGroupNameWithIndex(index) "server_%d", index

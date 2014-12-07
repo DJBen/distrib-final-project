@@ -29,6 +29,8 @@ static  void  Read_message();
 static void Bye();
 static void CreateJoinRoomUpdate(Update **update, char *groupName);
 static void CreateAddLineUpdate(Update **update, char *line, char *room);
+static void CreateLikeLineUpdate(Update **update, int line_number, char *room, bool isAdd);
+
 static void PrintHistoryWithReply(Reply *reply);
 
 static void Usage(int argc, char const *argv[]) {
@@ -74,6 +76,8 @@ static void User_command() {
   int i;
   Update *update = NULL;
   char line[MAX_LINE_LENGTH];
+  char like_update = -1; // -1 undefined, 1 add like, 0 remove like
+  int line_number = -1;
 
   for (i=0; i < sizeof(command); i++ ) command[i] = 0;
   if( fgets( command, 130, stdin ) == NULL ) Bye();
@@ -157,7 +161,7 @@ static void User_command() {
       ret = sscanf( &command[2], "%[^\t\n]", line);
       if( ret < 1 )
       {
-        printf("Invalid line content. Must <= 120 characters.\n");
+        printf("Invalid line content. Must > 0 and <= 120 characters.\n");
         break;
       }
       CreateAddLineUpdate(&update, line, roomName);
@@ -170,6 +174,41 @@ static void User_command() {
           exit(1);
         }
       }
+      break;
+    case 'l':
+      like_update = 1;
+      // no break here: like and not like are sent through the same mechanism
+    case 'r':
+      if (like_update == -1) like_update = 0;
+      if (username[0] == '\0') {
+        printf("You haven't logged in.\n");
+        break;
+      }
+      if (server_index == -1) {
+        printf("You haven't connect to a server.\n");
+        break;
+      }
+      if (roomName[0] == '\0') {
+        printf("You haven't joined a room.\n");
+        break;
+      }
+      ret = sscanf( &command[2], "%d", &line_number);
+      if( ret < 1 )
+      {
+        printf("Please like/unlike a line number.\n");
+        break;
+      }
+      CreateLikeLineUpdate(&update, line_number, roomName, like_update);
+      ret = SP_multicast( Mbox, AGREED_MESS, server_group_name, UpdateMessageType, UpdateMsgSize, (char *)update);
+      if( ret != UpdateMsgSize)
+      {
+        if( ret < 0 )
+        {
+          SP_error( ret );
+          exit(1);
+        }
+      }
+      printf("%s attemps to %s line %d\n", username, like_update ? "like" : "unlike", line_number);
       break;
     case 'h':
       if (username[0] == '\0') {
@@ -225,6 +264,7 @@ static void Read_message() {
   int    ret;
   membership_info memb_info;
   char temp_name[MAX_GROUP_NAME];
+  bool like_success;
 
   reply = malloc(MAX_REPLY_SIZE);
 
@@ -245,6 +285,14 @@ static void Read_message() {
     } else if (reply->type == ReplyNewUserJoin) {
       strcpy(temp_name, reply->content + sizeof(char) * MAX_GROUP_NAME * reply->count + sizeof(char) * MAX_LINE_LENGTH * reply->count + sizeof(int) * reply->count);
       printf("New user %s joined to the chat.\n", temp_name);
+    } else if (reply->type == ReplyAddLike) {
+      memcpy(&like_success, reply->content + sizeof(char) * MAX_GROUP_NAME * reply->count + sizeof(char) * MAX_LINE_LENGTH * reply->count + sizeof(int) * reply->count + sizeof(char) * MAX_GROUP_NAME, sizeof(bool));
+      printf("Like line %s\n", like_success ? "succeeded" : "failed");
+      PrintHistoryWithReply(reply);
+    } else if (reply->type == ReplyRemoveLike) {
+      memcpy(&like_success, reply->content + sizeof(char) * MAX_GROUP_NAME * reply->count + sizeof(char) * MAX_LINE_LENGTH * reply->count + sizeof(int) * reply->count + sizeof(char) * MAX_GROUP_NAME, sizeof(bool));
+      printf("Unlike line %s\n", like_success ? "succeeded" : "failed");
+      PrintHistoryWithReply(reply);
     }
     free(reply);
   } else if (Is_membership_mess( service_type)) {
@@ -275,10 +323,14 @@ static void CreateJoinRoomUpdate(Update **update, char *roomName) {
   (*update)->sender_index = 0;
 }
 
-static void CreateLikeLineUpdate(Update **update, char *roomName, bool isAdd) {
+static void CreateLikeLineUpdate(Update **update, int line_number, char *room, bool isAdd) {
   if (*update != NULL) free(*update);
   *update = malloc(sizeof(Update));
-
+  (*update)->type = isAdd ? AddLike : RemoveLike;
+  (*update)->line_number = line_number;
+  strcpy((*update)->room, room);
+  strcpy((*update)->user, username);
+  (*update)->sender_index = 0;
 }
 
 static void CreateAddLineUpdate(Update **update, char *line, char *room) {
@@ -323,7 +375,7 @@ static void PrintHistoryWithReply(Reply *reply) {
       reply->content + sizeof(char) * reply->count * MAX_GROUP_NAME + sizeof(char) * i * MAX_LINE_LENGTH);
     memcpy(&like_count, reply->content + sizeof(char) * reply->count * MAX_GROUP_NAME + sizeof(char) * reply->count * MAX_LINE_LENGTH + sizeof(int) * i, sizeof(int));
     if (like_count > 0) {
-      printf(" (%d likes)\n", like_count);
+      printf(" (%d like%s)\n", like_count, like_count != 1 ? "s" : "");
     } else {
       printf("\n");
     }

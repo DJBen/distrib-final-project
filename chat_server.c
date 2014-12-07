@@ -45,10 +45,12 @@ static void Print_help();
 static void Runloop();
 static void Print_help();
 static void Usage();
-static void freeString(void *data);
-static int findRoomWithName(char *roomName);
+void freeString(void *data);
+void freeLine(void *data);
+static int FindRoomWithName(char *roomName);
 static void CreateHistoryReply(Reply **reply, ReplyType type, Chatroom *room, int limit);
 static void CreateHistoryReplyWithNewUser(Reply **reply, ReplyType type, Chatroom *room, int limit, char *newUserName);
+static void CreateHistoryReplyWithStatus(Reply **reply, ReplyType type, Chatroom *room, int limit, bool status);
 static void printChatrooms();
 
 int main(int argc, char const *argv[])
@@ -118,7 +120,8 @@ static void Runloop() {
   Line *temp_line;
   Reply *temp_reply = NULL;
   membership_info memb_info;
-
+  int user_index_found;
+  int line_number_found;
 
   recv_mess = malloc(MAX(MAX_REPLY_SIZE, UpdateMsgSize));
 
@@ -174,16 +177,16 @@ static void Runloop() {
         }
         // Sender is the client private group name
         if (recv_mess->type == JoinRoom) {
-          room_found = findRoomWithName(recv_mess->room);
+          room_found = FindRoomWithName(recv_mess->room);
           temp_name = malloc(sizeof(char) * MAX_GROUP_NAME);
           if (room_found == -1) {
             // Chat group not found: create the group
             current_room = malloc(sizeof(Chatroom));
             strcpy(current_room->name, recv_mess->room);
-            current_room->members = vector_init(&freeString);
+            current_room->members = vector_init(freeString);
             strcpy(temp_name, recv_mess->user);
             vector_append(current_room->members, temp_name);
-            current_room->lines = vector_init(&freeString);
+            current_room->lines = vector_init(freeLine);
             chatrooms[chat_room_count++] = current_room;
 
             // Create spread group for chat group on this server
@@ -214,7 +217,7 @@ static void Runloop() {
           printf("Join message multicast.\n");
         } else if (recv_mess->type == AddLine) {
           // printChatrooms(); // DEBUG
-          room_found = findRoomWithName(recv_mess->room);
+          room_found = FindRoomWithName(recv_mess->room);
           if (room_found == -1) {
             // Cannot find room, error
             printf("Cannot find room %s\n", recv_mess->room);
@@ -225,7 +228,7 @@ static void Runloop() {
             strcpy(temp_line->content, recv_mess->line);
             strcpy(temp_line->sender, recv_mess->user);
             temp_line->like_count = 0;
-            temp_line->likes = vector_init(&freeString);
+            temp_line->likes = vector_init(freeString);
             vector_append(current_room->lines, temp_line);
             // printf("* current room line count = %d\n", vector_size(current_room->lines));
             // Broadcast line to clients in the same chatroom
@@ -244,12 +247,105 @@ static void Runloop() {
             printf("%s> %s\n", temp_line->sender, temp_line->content);
             // printChatrooms(); // DEBUG
           }
-        } else if (recv_mess->type == AddLike) {
+        } else if (recv_mess->type == AddLike || recv_mess->type == RemoveLike) {
+          room_found = FindRoomWithName(recv_mess->room);
+          if (room_found == -1) {
+            // Cannot find room, error
+            printf("Cannot find room %s\n", recv_mess->room);
+            Bye();
+          } else {
+            current_room = chatrooms[room_found];
+            if (recv_mess->line_number - 1 < 0 || recv_mess->line_number - 1 >= vector_size(current_room->lines)) {
+              printf("Cannot %s line %d: line does not exist.\n", recv_mess->type == AddLike ? "like" : "unlike", recv_mess->line_number);
+              // Reply failure
+              continue;
+            }
+            // -1 is important because the visual format starts with 1.
+            temp_line = vector_get(current_room->lines, recv_mess->line_number - 1);
+            // make sure the guy who adds/removes like is a member of the group
+            user_index_found = vector_index_of_str(current_room->members, recv_mess->user);
+            if (user_index_found == -1) {
+              printf("User %s who wants to %s does not belong to the chatroom %s, which currently has members: ", recv_mess->user, recv_mess->type == AddLike ? "like" : "unlike", current_room->name);
+              vector_print(current_room->members);
+              break;
+            }
+            // make sure the guy doesn't like twice
+            if (recv_mess->type == AddLike) {
+              line_number_found = vector_index_of_str(temp_line->likes, recv_mess->user);
+              if (line_number_found != -1) {
+                // Process duplicate likes: reply failure
+                sprintf(temp_group_name, "server_chatroom_%d_%s", server_index, current_room->name);
+                CreateHistoryReplyWithStatus(&temp_reply, ReplyAddLike, current_room, 25, false);
+                ret = SP_multicast( Mbox, AGREED_MESS, temp_group_name, ReplyMessageType, HistoryReplySizeWithCount(vector_size(current_room->lines)), (char *)temp_reply);
+                if (ret != HistoryReplySizeWithCount(vector_size(current_room->lines)))
+                {
+                  if( ret < 0 )
+                  {
+                    SP_error( ret );
+                    exit(1);
+                  }
+                }
+                printf("User %s cannot like line %d twice.\n", recv_mess->user, recv_mess->line_number);
+              } else {
+                // Add like
+                temp_name = malloc(sizeof(char) * MAX_GROUP_NAME);
+                strcpy(temp_name, recv_mess->user);
+                temp_line->like_count++;
+                vector_append(temp_line->likes, temp_name);
 
-        } else if (recv_mess->type == RemoveLike) {
-
+                // Reply success
+                sprintf(temp_group_name, "server_chatroom_%d_%s", server_index, current_room->name);
+                CreateHistoryReplyWithStatus(&temp_reply, ReplyAddLike, current_room, 25, true);
+                ret = SP_multicast( Mbox, AGREED_MESS, temp_group_name, ReplyMessageType, HistoryReplySizeWithCount(vector_size(current_room->lines)), (char *)temp_reply);
+                if (ret != HistoryReplySizeWithCount(vector_size(current_room->lines)))
+                {
+                  if( ret < 0 )
+                  {
+                    SP_error( ret );
+                    exit(1);
+                  }
+                }
+                printf("User %s liked line %d successfully.\n", recv_mess->user, recv_mess->line_number);
+              }
+            } else {
+              // make sure the guy doesn't unlike a not-liked line
+              line_number_found = vector_index_of_str(temp_line->likes, recv_mess->user);
+              if (line_number_found == -1) {
+                // Report failure
+                sprintf(temp_group_name, "server_chatroom_%d_%s", server_index, current_room->name);
+                CreateHistoryReplyWithStatus(&temp_reply, ReplyRemoveLike, current_room, 25, false);
+                ret = SP_multicast( Mbox, AGREED_MESS, temp_group_name, ReplyMessageType, HistoryReplySizeWithCount(vector_size(current_room->lines)), (char *)temp_reply);
+                if (ret != HistoryReplySizeWithCount(vector_size(current_room->lines)))
+                {
+                  if( ret < 0 )
+                  {
+                    SP_error( ret );
+                    exit(1);
+                  }
+                }
+                printf("User %s cannot unlike line %d which has not been liked.\n", recv_mess->user, recv_mess->line_number);
+              } else {
+                // Unlike the line
+                temp_line->like_count--;
+                vector_remove(temp_line->likes, line_number_found);
+                // Report success
+                sprintf(temp_group_name, "server_chatroom_%d_%s", server_index, current_room->name);
+                CreateHistoryReplyWithStatus(&temp_reply, ReplyRemoveLike, current_room, 25, true);
+                ret = SP_multicast( Mbox, AGREED_MESS, temp_group_name, ReplyMessageType, HistoryReplySizeWithCount(vector_size(current_room->lines)), (char *)temp_reply);
+                if (ret != HistoryReplySizeWithCount(vector_size(current_room->lines)))
+                {
+                  if( ret < 0 )
+                  {
+                    SP_error( ret );
+                    exit(1);
+                  }
+                }
+                printf("User %s unliked line %d successfully.\n", recv_mess->user, recv_mess->line_number);
+              }
+            }
+          }
         } else if (recv_mess->type == PrintHistory) {
-          room_found = findRoomWithName(recv_mess->room);
+          room_found = FindRoomWithName(recv_mess->room);
           if (room_found == -1) {
             // Cannot find room, error
             printf("Cannot find room %s\n", recv_mess->room);
@@ -273,12 +369,12 @@ static void Runloop() {
           }
         }
       } else {
-        // printf("* Unknown msg received with type %d\n", mess_type);
-        // if (mess_type == ReplyMessageType) {
-          // temp_reply = (Reply *)recv_mess;
-          // printf("* Reply type %d, count %d\n", temp_reply->type, temp_reply->count);
-          // temp_reply = NULL;
-        // }
+        printf("* Unknown msg received with type %d\n", mess_type);
+        if (mess_type == ReplyMessageType) {
+          temp_reply = (Reply *)recv_mess;
+          printf("* Reply type %d, count %d\n", temp_reply->type, temp_reply->count);
+          temp_reply = NULL;
+        }
       }
     } else if (Is_membership_mess( service_type)) {
       ret = SP_get_memb_info(recv_mess, service_type, &memb_info);
@@ -311,12 +407,18 @@ static void Bye() {
   exit(0);
 }
 
-static void freeString(void *data) {
+void freeString(void *data) {
   // printf("* Freed: %s\n", (char *)data);
   free(data);
 }
 
-static int findRoomWithName(char *roomName) {
+void freeLine(void *data) {
+  Line *line_to_be_freed = (Line *)data;
+  vector_free(line_to_be_freed->likes);
+  free(line_to_be_freed);
+}
+
+static int FindRoomWithName(char *roomName) {
   int room_found = -1;
   int i;
   for (i = 0; i < chat_room_count; i++) {
@@ -370,4 +472,9 @@ static void CreateHistoryReply(Reply **reply, ReplyType type, Chatroom *room, in
 static void CreateHistoryReplyWithNewUser(Reply **reply, ReplyType type, Chatroom *room, int limit, char *newUserName) {
   CreateHistoryReply(reply, type, room, limit);
   strcpy((*reply)->content + sizeof(char) * MAX_GROUP_NAME * (*reply)->count + sizeof(char) * MAX_LINE_LENGTH * (*reply)->count + (*reply)->count * sizeof(int), newUserName);
+}
+
+static void CreateHistoryReplyWithStatus(Reply **reply, ReplyType type, Chatroom *room, int limit, bool status) {
+  CreateHistoryReply(reply, type, room, limit);
+  memcpy((*reply)->content + sizeof(char) * MAX_GROUP_NAME * (*reply)->count + sizeof(char) * MAX_LINE_LENGTH * (*reply)->count + (*reply)->count * sizeof(int) + sizeof(char) * MAX_GROUP_NAME, &status, sizeof(bool));
 }

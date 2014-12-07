@@ -4,7 +4,7 @@ CFLAGS=-g -Wall
 CPPFLAGS=-I. -I include
 SP_LIBRARY_DIR=include
 
-all: chat_server client test
+all: chat_server client vector_test
 
 .c.o:
 	$(CC) $(CFLAGS) $(CPPFLAGS) -c $<
