@@ -694,7 +694,7 @@ static void CreateHistoryReply(Reply **reply, ReplyType type, Chatroom *room, in
   }
   (*reply)->member_count = vector_size(room->members);
   for (i = 0; i < vector_size(room->members); i++) {
-    printf("* Copying member %s.\n", vector_get(room->members, i));
+    // printf("* Copying member %s.\n", vector_get(room->members, i));
     strcpy((*reply)->content + sizeof(char) * MAX_GROUP_NAME * (*reply)->count + sizeof(char) * MAX_LINE_LENGTH * (*reply)->count + sizeof(int) * (*reply)->count + sizeof(char) * MAX_GROUP_NAME + sizeof(bool) + sizeof(char) * MAX_GROUP_NAME * i, (char *)vector_get(room->members, i));
   }
 }
