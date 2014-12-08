@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <assert.h>
+#include <string.h>
+
 #include "vector.h"
 
 static void vector_double_capacity_if_full(Vector *vector);

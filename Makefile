@@ -1,6 +1,6 @@
 CC=gcc
 LD=gcc
-CFLAGS=-g -Wall
+CFLAGS=-g -Wall -Wno-unused-function
 CPPFLAGS=-I. -I include
 SP_LIBRARY_DIR=include
 
@@ -19,5 +19,5 @@ client:  $(SP_LIBRARY_DIR)/libspread-core.a client.o vector.o
 	$(LD) -o $@ client.o vector.o $(SP_LIBRARY_DIR)/libspread-core.a -ldl -lm -lrt -lnsl $(SP_LIBRARY_DIR)/libspread-util.a
 
 clean:
-	rm -f *.o chat_server client test
+	rm -f *.o chat_server client vector_test
 

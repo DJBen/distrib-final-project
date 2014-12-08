@@ -538,7 +538,7 @@ static	char		 mess[MAX_MESSLEN];
 
 static	void	Usage(int argc, char *argv[])
 {
-        Use_Pword = 0;
+  Use_Pword = 0;
 	sprintf( User, "user" );
 	sprintf( Spread_name, "4803");
 	while( --argc > 0 )
