@@ -2,7 +2,6 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdbool.h>
 #include <assert.h>
 #include <string.h>
 
@@ -67,6 +66,27 @@ int vector_size(Vector *vector) {
   return vector->size;
 }
 
+void vector_insert(Vector *vector, int index, void *data) {
+  int i;
+  if (index < 0 || index > vector->size) {
+    printf("Insert: Index %d out of bounds for vector of size %d\n", index, vector->size);
+    exit(1);
+  }
+
+  if (index == vector->size) {
+    vector_append(vector, data);
+    return;
+  }
+
+  vector_double_capacity_if_full(vector);
+
+  for (i = vector->size - 1; i >= index; i--) {
+    vector->data[i + 1] = vector->data[i];
+  }
+  vector->data[index] = data;
+  vector->size++;
+}
+
 void vector_set(Vector *vector, int index, void *data) {
   if (index >= vector->size || index < 0) {
     printf("Index %d out of bounds for vector of size %d\n", index, vector->size);
@@ -123,4 +143,69 @@ int vector_index_of_str(Vector *vector, char *str) {
   }
   return -1;
 }
+
+// Map stuff
+
+static void free_int(void *data) {
+  free(data);
+}
+
+Map *map_init() {
+  Map *map;
+  map = (Map *)calloc(1, sizeof(Map));
+  map->keys = vector_init(&free_int);
+  map->values = vector_init(&free_int);
+  return map;
+}
+
+void map_set(Map *map, int key, int value) {
+  int *keyPtr = malloc(sizeof(int));
+  int *valuePtr = malloc(sizeof(int));
+  *keyPtr = key;
+  *valuePtr = value;
+  vector_append(map->keys, keyPtr);
+  vector_append(map->values, valuePtr);
+}
+
+bool map_has_key(Map *map, int key) {
+  int i;
+  bool found = false;
+  for (i = 0; i < map->keys->size; i++) {
+    if (*((int *)vector_get(map->keys, i)) == key) {
+      found = true;
+      break;
+    }
+  }
+  return found;
+}
+
+int map_get(Map *map, int key) {
+  int i;
+  bool found = false;
+  for (i = 0; i < map->keys->size; i++) {
+    if (*((int *)vector_get(map->keys, i)) == key) {
+      return *((int *)vector_get(map->values, i));
+    }
+  }
+  return -1;
+}
+
+void map_remove(Map *map, int key) {
+  int i;
+  for (i = 0; i < map->keys->size; i++) {
+    if (*((int *)vector_get(map->keys, i)) == key) {
+      vector_remove(map->keys, i);
+      vector_remove(map->values, i);
+      break;
+    }
+  }
+}
+
+void map_free(Map *map) {
+  vector_free(map->keys);
+  vector_free(map->values);
+  free(map);
+}
+
+
 

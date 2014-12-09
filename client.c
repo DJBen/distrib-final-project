@@ -35,6 +35,7 @@ static void CreateAddLineUpdate(Update **update, char *line, char *room);
 static void CreateLikeLineUpdate(Update **update, int line_number, char *room, bool isAdd);
 
 static void PrintHistoryWithReply(Reply *reply);
+static void PrintHistoryWithReplyWithConfig(Reply *reply, bool printAttendees, int beginIndex);
 
 static void Usage(int argc, char const *argv[]) {
   sprintf( User, "client" );
@@ -335,7 +336,7 @@ static void Read_message() {
   char temp_name[MAX_GROUP_NAME];
   bool like_success;
   bool server_found;
-
+  bool shouldbeginIndex;
   reply = malloc(MAX_REPLY_SIZE);
 
   ret = SP_receive( Mbox, &service_type, sender, MAX_GROUPS, &num_groups, ret_groups,
@@ -347,9 +348,10 @@ static void Read_message() {
       return;
     }
 
-    printf("Received reply with type %d, count %d.\n", reply->type, reply->count);
+    // printf("* Received reply with type %d, count %d.\n", reply->type, reply->count);
     if (reply->type == ReplyPrintHistory) {
-      PrintHistoryWithReply(reply);
+      memcpy(&shouldbeginIndex, reply->content + sizeof(char) * MAX_GROUP_NAME * reply->count + sizeof(char) * MAX_LINE_LENGTH * reply->count + sizeof(int) * reply->count + sizeof(char) * MAX_GROUP_NAME + sizeof(bool) + sizeof(char) * MAX_GROUP_NAME * 30, sizeof(int));
+      PrintHistoryWithReplyWithConfig(reply, false, shouldbeginIndex);
     } else if (reply->type == ReplyEchoLine) {
       PrintHistoryWithReply(reply);
     } else if (reply->type == ReplyNewUserJoin) {
@@ -462,20 +464,28 @@ static  void  Print_menu() {
 }
 
 static void PrintHistoryWithReply(Reply *reply) {
+  PrintHistoryWithReplyWithConfig(reply, true, false);
+}
+
+static void PrintHistoryWithReplyWithConfig(Reply *reply, bool printAttendees, int beginIndex) {
   int like_count = -1;
   int i;
-  printf("\n");
-  printf("Room: %s\n", roomName);
-  printf("Attendees (%d): ", reply->member_count);
-  for (i = 0; i < reply->member_count; i++) {
-    printf("%s", reply->content + sizeof(char) * MAX_GROUP_NAME * reply->count + sizeof(char) * MAX_LINE_LENGTH * reply->count + sizeof(int) * reply->count + sizeof(char) * MAX_GROUP_NAME + sizeof(bool) + sizeof(char) * MAX_GROUP_NAME * i);
-    if (i + 1 < reply->member_count) {
-      printf(", ");
+  if (beginIndex == 0) {
+    printf("\n");
+    printf("Room: %s\n", roomName);
+    if (printAttendees) {
+    printf("Attendees (%d): ", reply->member_count);
+      for (i = 0; i < reply->member_count; i++) {
+        printf("%s", reply->content + sizeof(char) * MAX_GROUP_NAME * reply->count + sizeof(char) * MAX_LINE_LENGTH * reply->count + sizeof(int) * reply->count + sizeof(char) * MAX_GROUP_NAME + sizeof(bool) + sizeof(char) * MAX_GROUP_NAME * i);
+        if (i + 1 < reply->member_count) {
+          printf(", ");
+        }
+      }
+      printf("\n");
     }
   }
-  printf("\n");
   for (i = 0; i < reply->count; i++) {
-    printf("%d. %s: %s", i + 1,
+    printf("%d. %s: %s", i + 1 + beginIndex,
       reply->content + sizeof(char) * i * MAX_GROUP_NAME,
       reply->content + sizeof(char) * reply->count * MAX_GROUP_NAME + sizeof(char) * i * MAX_LINE_LENGTH);
     memcpy(&like_count, reply->content + sizeof(char) * reply->count * MAX_GROUP_NAME + sizeof(char) * reply->count * MAX_LINE_LENGTH + sizeof(int) * i, sizeof(int));

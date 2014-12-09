@@ -22,6 +22,11 @@ typedef struct
 {
   char content[MAX_LINE_LENGTH];
   char sender[MAX_GROUP_NAME];
+
+  // Lamport timestamps
+  int sender_index;
+  int timestamp;
+
   int like_count;
   // All users who have liked this.
   Vector *likes;
@@ -64,9 +69,10 @@ void freeString(void *data);
 void freeLine(void *data);
 void freeUpdate(void *data);
 static int FindRoomWithName(char *roomName);
-static void CreateHistoryReply(Reply **reply, ReplyType type, Chatroom *room, int limit);
-static void CreateHistoryReplyWithUserName(Reply **reply, ReplyType type, Chatroom *room, int limit, char *userName);
-static void CreateHistoryReplyWithStatus(Reply **reply, ReplyType type, Chatroom *room, int limit, bool status);
+static int CreateHistoryReply(Reply **reply, ReplyType type, Chatroom *room, int limit);
+static int CreateHistoryReplyWithUserName(Reply **reply, ReplyType type, Chatroom *room, int limit, char *userName);
+static int CreateHistoryReplyWithStatus(Reply **reply, ReplyType type, Chatroom *room, int limit, bool status);
+static int CreateHistoryReplyForHistory(Reply **reply, Chatroom *room, int from, int to);
 static void CreatePrintViewReply(Reply **reply);
 static void printChatrooms();
 static void printTimestamps(int *timestamp_array);
@@ -141,7 +147,7 @@ static void Runloop() {
   char *temp_name;
   char temp_group_name[MAX_GROUP_NAME];
   char temp_room_name[MAX_GROUP_NAME];
-  Line *temp_line;
+  Line *temp_line, *line_ref;
   Reply *temp_reply = NULL;
   membership_info memb_info;
   int user_index_found;
@@ -154,6 +160,7 @@ static void Runloop() {
   Status *temp_status;
   int received_stati[5][5];
   int status_message_received_count;
+  int size_of_reply;
 
   recv_mess = malloc(MAX(MAX_REPLY_SIZE, UpdateMsgSize));
 
@@ -256,9 +263,9 @@ static void Runloop() {
           }
           // Send other user's update about the join
           sprintf(temp_group_name, "server_chatroom_%d_%s", server_index, current_room->name);
-          CreateHistoryReplyWithUserName(&temp_reply, ReplyNewUserJoin, current_room, 25, recv_mess->user);
-          ret = SP_multicast( Mbox, AGREED_MESS, temp_group_name, ReplyMessageType, HistoryReplySizeWithCount(vector_size(current_room->lines)), (char *)temp_reply);
-          if (ret != HistoryReplySizeWithCount(vector_size(current_room->lines)))
+          size_of_reply = CreateHistoryReplyWithUserName(&temp_reply, ReplyNewUserJoin, current_room, 25, recv_mess->user);
+          ret = SP_multicast( Mbox, AGREED_MESS, temp_group_name, ReplyMessageType, HistoryReplySizeWithCount(size_of_reply), (char *)temp_reply);
+          if (ret != HistoryReplySizeWithCount(size_of_reply))
           {
             if( ret < 0 )
             {
@@ -281,13 +288,32 @@ static void Runloop() {
             strcpy(temp_line->sender, recv_mess->user);
             temp_line->like_count = 0;
             temp_line->likes = vector_init(freeString);
-            vector_append(current_room->lines, temp_line);
+            if (recv_mess->sender_index == 0) {
+              // Add Lamport timestamp for the total ordering after remerge
+              temp_line->sender_index = server_index;
+              temp_line->timestamp = update_timestamps[server_index - 1] + 1;
+            } else {
+              // If the update is sent from another server, copy Lamport timestamp
+              temp_line->sender_index = recv_mess->sender_index;
+              temp_line->timestamp = recv_mess->timestamp;
+            }
+            for (j = vector_size(current_room->lines) - 1; j >= 0; j--) {
+              line_ref = (Line *)vector_get(current_room->lines, j);
+              if (line_ref->sender_index < temp_line->sender_index) {
+                break;
+              }
+              if (line_ref->sender_index == temp_line->sender_index && line_ref->timestamp < temp_line->timestamp) {
+                break;
+              }
+            }
+            vector_insert(current_room->lines, j + 1, temp_line);
+
             // printf("* current room line count = %d\n", vector_size(current_room->lines));
             // Broadcast line to clients in the same chatroom
             sprintf(temp_group_name, "server_chatroom_%d_%s", server_index, current_room->name);
-            CreateHistoryReply(&temp_reply, ReplyEchoLine, current_room, 25);
-            ret = SP_multicast( Mbox, AGREED_MESS, temp_group_name, ReplyMessageType, HistoryReplySizeWithCount(vector_size(current_room->lines)), (char *)temp_reply);
-            if (ret != HistoryReplySizeWithCount(vector_size(current_room->lines)))
+            size_of_reply = CreateHistoryReply(&temp_reply, ReplyEchoLine, current_room, 25);
+            ret = SP_multicast( Mbox, AGREED_MESS, temp_group_name, ReplyMessageType, HistoryReplySizeWithCount(size_of_reply), (char *)temp_reply);
+            if (ret != HistoryReplySizeWithCount(size_of_reply))
             {
               if( ret < 0 )
               {
@@ -328,9 +354,9 @@ static void Runloop() {
               if (line_number_found != -1) {
                 // Process duplicate likes: reply failure
                 sprintf(temp_group_name, "server_chatroom_%d_%s", server_index, current_room->name);
-                CreateHistoryReplyWithStatus(&temp_reply, ReplyAddLike, current_room, 25, false);
-                ret = SP_multicast( Mbox, AGREED_MESS, temp_group_name, ReplyMessageType, HistoryReplySizeWithCount(vector_size(current_room->lines)), (char *)temp_reply);
-                if (ret != HistoryReplySizeWithCount(vector_size(current_room->lines)))
+                size_of_reply = CreateHistoryReplyWithStatus(&temp_reply, ReplyAddLike, current_room, 25, false);
+                ret = SP_multicast( Mbox, AGREED_MESS, temp_group_name, ReplyMessageType, HistoryReplySizeWithCount(size_of_reply), (char *)temp_reply);
+                if (ret != HistoryReplySizeWithCount(size_of_reply))
                 {
                   if( ret < 0 )
                   {
@@ -348,9 +374,9 @@ static void Runloop() {
 
                 // Reply success
                 sprintf(temp_group_name, "server_chatroom_%d_%s", server_index, current_room->name);
-                CreateHistoryReplyWithStatus(&temp_reply, ReplyAddLike, current_room, 25, true);
-                ret = SP_multicast( Mbox, AGREED_MESS, temp_group_name, ReplyMessageType, HistoryReplySizeWithCount(vector_size(current_room->lines)), (char *)temp_reply);
-                if (ret != HistoryReplySizeWithCount(vector_size(current_room->lines)))
+                size_of_reply = CreateHistoryReplyWithStatus(&temp_reply, ReplyAddLike, current_room, 25, true);
+                ret = SP_multicast( Mbox, AGREED_MESS, temp_group_name, ReplyMessageType, HistoryReplySizeWithCount(size_of_reply), (char *)temp_reply);
+                if (ret != HistoryReplySizeWithCount(size_of_reply))
                 {
                   if( ret < 0 )
                   {
@@ -367,9 +393,9 @@ static void Runloop() {
               if (line_number_found == -1) {
                 // Report failure
                 sprintf(temp_group_name, "server_chatroom_%d_%s", server_index, current_room->name);
-                CreateHistoryReplyWithStatus(&temp_reply, ReplyRemoveLike, current_room, 25, false);
-                ret = SP_multicast( Mbox, AGREED_MESS, temp_group_name, ReplyMessageType, HistoryReplySizeWithCount(vector_size(current_room->lines)), (char *)temp_reply);
-                if (ret != HistoryReplySizeWithCount(vector_size(current_room->lines)))
+                size_of_reply = CreateHistoryReplyWithStatus(&temp_reply, ReplyRemoveLike, current_room, 25, false);
+                ret = SP_multicast( Mbox, AGREED_MESS, temp_group_name, ReplyMessageType, HistoryReplySizeWithCount(size_of_reply), (char *)temp_reply);
+                if (ret != HistoryReplySizeWithCount(size_of_reply))
                 {
                   if( ret < 0 )
                   {
@@ -384,9 +410,9 @@ static void Runloop() {
                 vector_remove(temp_line->likes, line_number_found);
                 // Report success
                 sprintf(temp_group_name, "server_chatroom_%d_%s", server_index, current_room->name);
-                CreateHistoryReplyWithStatus(&temp_reply, ReplyRemoveLike, current_room, 25, true);
-                ret = SP_multicast( Mbox, AGREED_MESS, temp_group_name, ReplyMessageType, HistoryReplySizeWithCount(vector_size(current_room->lines)), (char *)temp_reply);
-                if (ret != HistoryReplySizeWithCount(vector_size(current_room->lines)))
+                size_of_reply = CreateHistoryReplyWithStatus(&temp_reply, ReplyRemoveLike, current_room, 25, true);
+                ret = SP_multicast( Mbox, AGREED_MESS, temp_group_name, ReplyMessageType, HistoryReplySizeWithCount(size_of_reply), (char *)temp_reply);
+                if (ret != HistoryReplySizeWithCount(size_of_reply))
                 {
                   if( ret < 0 )
                   {
@@ -407,19 +433,19 @@ static void Runloop() {
             Bye();
           } else {
             current_room = chatrooms[room_found];
-            CreateHistoryReply(&temp_reply, ReplyPrintHistory, current_room, 100);
-            printf("Create history records.\n");
-            ret = SP_multicast(Mbox, AGREED_MESS, sender, ReplyMessageType, HistoryReplySizeWithCount(vector_size(current_room->lines)), (char *)temp_reply);
-            if (ret != HistoryReplySizeWithCount(vector_size(current_room->lines)))
-            {
-              if( ret < 0 )
+            for (i = 0; i <= vector_size(current_room->lines) / 40; i++) {
+              size_of_reply = CreateHistoryReplyForHistory(&temp_reply, current_room, i * 40, (i + 1) * 40);
+              ret = SP_multicast(Mbox, AGREED_MESS, sender, ReplyMessageType, HistoryReplySizeWithCount(size_of_reply), (char *)temp_reply);
+              if (ret != HistoryReplySizeWithCount(size_of_reply))
               {
-                SP_error( ret );
-                exit(1);
+                if( ret < 0 )
+                {
+                  SP_error( ret );
+                  exit(1);
+                }
               }
+              printf("History (%d - %d) (real: %d) sent to %s\n", i * 3, (i + 1) * 3, size_of_reply, sender);
             }
-            // free(temp_reply);
-            printf("History sent to %s\n", sender);
           }
         } else if (recv_mess->type == PrintView) {
           CreatePrintViewReply(&temp_reply);
@@ -481,21 +507,14 @@ static void Runloop() {
             }
             printf("\n");
 
-            // Sync
+            // Synchronize: send missing updates of other servers
             for (i = 0; i < 5; i++) { // server index - 1's updates needs to be resent
               localMax = -1; // The guy that is chosen to send new updates
               localMin = 2147483647;
               for (j = 0; j < 5; j++) { // server index - 1 that sends new updates
-                if (j == server_index - 1) {
-                  if (received_stati[j][i] >= localMax) {
-                    localMax = received_stati[j][i];
-                    updater = j;
-                  }
-                } else {
-                  if (received_stati[j][i] > localMax) {
-                    localMax = received_stati[j][i];
-                    updater = j;
-                  }
+                if (received_stati[j][i] > localMax) {
+                  localMax = received_stati[j][i];
+                  updater = j;
                 }
                 if (received_stati[j][i] < localMin) localMin = received_stati[j][i];
               }
@@ -667,7 +686,28 @@ static void CreatePrintViewReply(Reply **reply) {
   memcpy((*reply)->content, current_servers, sizeof(int) * current_servers_count);
 }
 
-static void CreateHistoryReply(Reply **reply, ReplyType type, Chatroom *room, int limit) {
+static int CreateHistoryReplyForHistory(Reply **reply, Chatroom *room, int from, int to) {
+  int continuePrevious = from;
+  int i;
+  if (*reply) free(*reply);
+  if (from < 0) from = 0;
+  if (to > vector_size(room->lines)) to = vector_size(room->lines);
+  *reply = malloc(HistoryReplySizeWithCount(to - from));
+  (*reply)->type = ReplyPrintHistory;
+  (*reply)->count = to - from;
+  // printf("Constructing history with %d replies.\n", to - from);
+  // printf("* Create history reply type = %d count = %d\n", type, (*reply)->count);
+  for (i = from; i < to; i++) {
+    strcpy((*reply)->content + sizeof(char) * MAX_GROUP_NAME * i, ((Line *)vector_get(room->lines, i))->sender);
+    // printf("* Sending %s\n", ((Line *)vector_get(room->lines, i))->content);
+    strcpy((*reply)->content + sizeof(char) * MAX_GROUP_NAME * (*reply)->count + sizeof(char) * MAX_LINE_LENGTH * i, ((Line *)vector_get(room->lines, i))->content);
+    memcpy((*reply)->content + sizeof(char) * MAX_GROUP_NAME * (*reply)->count + sizeof(char) * MAX_LINE_LENGTH * (*reply)->count + i * sizeof(int), &((Line *)vector_get(room->lines, i))->like_count, sizeof(int));
+  }
+  memcpy((*reply)->content + sizeof(char) * MAX_GROUP_NAME * (*reply)->count + sizeof(char) * MAX_LINE_LENGTH * (*reply)->count + sizeof(int) * (*reply)->count + sizeof(char) * MAX_GROUP_NAME + sizeof(bool) + sizeof(char) * MAX_GROUP_NAME * 30, &continuePrevious, sizeof(int));
+  return to - from;
+}
+
+static int CreateHistoryReply(Reply **reply, ReplyType type, Chatroom *room, int limit) {
   int i;
   int start = 0;
   if (*reply) free(*reply);
@@ -697,14 +737,19 @@ static void CreateHistoryReply(Reply **reply, ReplyType type, Chatroom *room, in
     // printf("* Copying member %s.\n", vector_get(room->members, i));
     strcpy((*reply)->content + sizeof(char) * MAX_GROUP_NAME * (*reply)->count + sizeof(char) * MAX_LINE_LENGTH * (*reply)->count + sizeof(int) * (*reply)->count + sizeof(char) * MAX_GROUP_NAME + sizeof(bool) + sizeof(char) * MAX_GROUP_NAME * i, (char *)vector_get(room->members, i));
   }
+  return limit;
 }
 
-static void CreateHistoryReplyWithUserName(Reply **reply, ReplyType type, Chatroom *room, int limit, char *userName) {
-  CreateHistoryReply(reply, type, room, limit);
+static int CreateHistoryReplyWithUserName(Reply **reply, ReplyType type, Chatroom *room, int limit, char *userName) {
+  int real_size;
+  real_size = CreateHistoryReply(reply, type, room, limit);
   strcpy((*reply)->content + sizeof(char) * MAX_GROUP_NAME * (*reply)->count + sizeof(char) * MAX_LINE_LENGTH * (*reply)->count + (*reply)->count * sizeof(int), userName);
+  return real_size;
 }
 
-static void CreateHistoryReplyWithStatus(Reply **reply, ReplyType type, Chatroom *room, int limit, bool status) {
-  CreateHistoryReply(reply, type, room, limit);
+static int CreateHistoryReplyWithStatus(Reply **reply, ReplyType type, Chatroom *room, int limit, bool status) {
+  int real_size;
+  real_size = CreateHistoryReply(reply, type, room, limit);
   memcpy((*reply)->content + sizeof(char) * MAX_GROUP_NAME * (*reply)->count + sizeof(char) * MAX_LINE_LENGTH * (*reply)->count + (*reply)->count * sizeof(int) + sizeof(char) * MAX_GROUP_NAME, &status, sizeof(bool));
+  return real_size;
 }

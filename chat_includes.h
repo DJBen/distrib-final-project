@@ -46,9 +46,9 @@ typedef struct
 
 #define UpdateMsgSize sizeof(Update)
 
-// senders[], lines[], likes[], newperson?, success?, members[]
-#define HistoryReplySizeWithCount(count) sizeof(Reply) + sizeof(char) * MAX_GROUP_NAME * count + sizeof(char) * MAX_LINE_LENGTH * count + sizeof(int) * count + sizeof(char) * MAX_GROUP_NAME + sizeof(bool) + sizeof(char) * MAX_GROUP_NAME * 30
-#define MAX_REPLY_SIZE HistoryReplySizeWithCount(100)
+// senders[], lines[], likes[], newperson?, success?, members[], continuePrev?
+#define HistoryReplySizeWithCount(count) sizeof(Reply) + sizeof(char) * MAX_GROUP_NAME * count + sizeof(char) * MAX_LINE_LENGTH * count + sizeof(int) * count + sizeof(char) * MAX_GROUP_NAME + sizeof(bool) + sizeof(char) * MAX_GROUP_NAME * 30 + sizeof(int)
+#define MAX_REPLY_SIZE HistoryReplySizeWithCount(50)
 #define PrintViewReplySizeWithCount(count) sizeof(Reply) + sizeof(int) * count
 #define ServerGroupNameWithIndex(index) "server_%d", index
 #define ServerClientGroupNameWithIndex(index) "server_clients_%d", index
